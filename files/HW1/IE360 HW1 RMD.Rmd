@@ -1,0 +1,304 @@
+---
+title: "IE 360 Homework 1"
+author: "Yusuf Sina Öztürk"
+date: "Last edited `r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Part A (Data from EVDS)
+
+### Getting Data and Manipulate
+- First of all, I added needed packages into the project
+
+```{r, libraries, include = FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(EVDS)
+library(ggplot2)
+
+```
+- Then, I need to set my EVDS key in order to use EVDS packages to get the datas.
+
+```{r, EVDS key,include = FALSE}
+
+set_evds_key("Rw8XwgzVe4")
+
+```
+
+- Finally, I can get the data from EVDS website by using `get_series()` function.
+
+```{r, get series, warning = FALSE}
+
+df <- get_series(series = c("TP.DK.USD.A.YTL","TP.DK.EUR.A.YTL","TP.SGEGI.K1","TP.ODEMGZS.GTOPLAM","TP.FG.J0"), start_date = "01-01-2008",end_date = "31-12-2020")
+
+```
+- I took 5 data list, starting from `2008-01-01` until `2020-12-31`. Here is the list of data I take from EVDS;
+
+1. US Dollar (Buying)
+2. Euro (Buying)
+3. Total Tourism Income
+4. Total Number of Tourist
+5. Consumer Price Index (CPI),
+
+- Because `df` object is messy to plot and analyze. I need to do some data manipulation. Eventually, I ended up with `df1`object which has 7 variables.
+
+```{r, data manipulation in df,echo=TRUE, results = 'hide' }
+
+US_Dollar <- as.numeric(df$items$TP_DK_USD_A_YTL)
+Euro <- as.numeric(df$items$TP_DK_EUR_A_YTL)
+Total_Travel_Incomes_millionUSD <- as.numeric(df$items$TP_SGEGI_K1)
+Number_of_Total_Tourist <- as.numeric(df$items$TP_ODEMGZS_GTOPLAM)
+Consumer_Price_Index <- as.numeric(df$items$TP_FG_J0)
+Tarih <- as.character(df$items$Tarih)
+
+df1 <- data.frame(Tarih,US_Dollar,Euro,Consumer_Price_Index,Number_of_Total_Tourist,Total_Travel_Incomes_millionUSD)
+
+na.omit(df1)
+df1 <- mutate(df1, Date = ym(Tarih))
+
+```
+
+- Also, because all my data lists' time intervals are monthly, I set `Date` variable monthly.
+
+
+
+### Plotting
+
+**Currency Rates**
+
+- Starting with,plotting Euro and US Dollar rates 
+
+```{r, Currency Rate Plot, echo = TRUE, warning = FALSE,fig.width=10}
+
+df1 %>%
+  ggplot(aes(x = Date, y = US_Dollar)) + 
+  geom_line(aes(color = "Dolar")) + 
+  geom_line(aes(y = Euro, color ="Euro")) +
+  expand_limits(y= c(1,10)) +
+  labs(title = "Exchange Rates vs. Time", x = "Time", y = "Currency Rates") + 
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") +
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4)) +
+  theme(legend.position= "right" , legend.background = element_rect(fill="gray", linetype="solid"))
+  
+
+```
+
+
+**Analysis;** As we can see there is increasing trend and some fluctuations.
+
+
+**Consumer Price Index**
+
+- Secondly, plotting consumer price index over time
+- Note that, base year which is 2003 has a value of 100. 
+
+```{r, CPI Plot, echo = TRUE,fig.width=10}
+
+df1 %>%
+  ggplot(aes(x=Date, y = Consumer_Price_Index)) + 
+  geom_line(color= 9) +
+  labs(title = "Consumer Price Index vs. Time (Base year 2003 = 100)", y = "Consumer Price Index", x = "Time(Monthly)") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+
+
+```
+
+**Analysis;** 
+
+In the above plot, we can see an increasing trend but it is more straight forward. Also we can see small fluctions at the same time with Currency Rates.
+
+**Tourism Datas**
+
+- Finally, I can plot my data lists about tourism.
+- First list is **Number of Total Tourist** over time.
+
+```{r, Total Tourist Number Plot, echo = TRUE,fig.width=10}
+
+df1 %>%
+  ggplot(aes(x=Date, y = Number_of_Total_Tourist)) +
+  geom_line(color = "Blue") +
+  labs(title = "The number of tourists visiting Turkey", x = "Time (Monthly)", y = "Total Number of Tourists") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") +
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+
+
+```
+
+**Analysis;** 
+
+Above we can see a seasonality over the year. In the summer, it hits the top level and it is on the lowest level at winter time.
+
+This set also has a increasing trend but it is more flatter than other datas. 
+
+Also this set has fluctuations. Especially in 2016 and 2020.
+
+- Second list is **Total Tourism Incomes in million US Dollar**.
+
+```{r, Total Tourism Income Plot, echo = TRUE,fig.width=10}
+
+df1 %>%
+  ggplot(aes(x=Date, y = Total_Travel_Incomes_millionUSD)) + 
+  geom_line(color = 6) + 
+  labs(title = "Tourism Income vs. Time", x = "Time(Monthly)", y = "Incomes from Tourists (million USD)") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") +
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+
+```
+
+**Analysis;** 
+
+Naturally, above plot is look like the same as Total Tourist Number plot. 
+
+However, from 2008 until 2012 the highest level of Incomes decreasing. It is conflicting with the Total Tourist Numbers. 
+
+Also there is fluctuations as parallel with Total Tourist Numbers.
+
+### Overall Analysis:
+
+-First thing that I choose these data lists is because is there a connection between the Currency Rates and Tourism. First question that I asked is that when currency rate increasing, is the number of tourists increasing?.
+
+-The answer for this question is NO because the currency rates are increasing exponentially in last few years but tourism data are increasing more flatter. 
+
+-Also there is an observation about the fluctuation. In tourism data year 2016 has a big fluctuation when there is military coup. On the other hand one of the biggest fluctuation in currency rates is in year 2018. Also from here we conclude that tourists are not affected from currency rates. 
+
+-The biggest CPI fluctuations is at the end of year 2018. Also the biggest fluctuations in currency rates is at mid 2018. Moreover, both CPI and Currency rates have a similar increasing trend. From here we can conclude that, there is correlation between CPI and Currency Rates.
+
+-When you check total income plot there is decreasing trend between 2008 and 2012. However, Number of Total Tourists are increasing and currency rates is not changing too much. These observations conflicting from each other. So there can be a lot of reason for that but when you check CPI, it is increasing with a trend. Therefore increasing in CPI can cause decreasing in Tourism Income.
+
+## Part B (Google Trends)
+
+### Getting Data from GoogleTrends and Manipulate
+
+- First of all, I need to read the data files from Google Trends website. 
+
+```{r, reading gtrends}
+
+
+antalya <- read.csv(file = "antalya.csv")
+dolarkuru <- read.csv(file = "dolarkuru.csv")
+asgariucret <- read.csv(file = "asgariucret.csv")
+
+
+```
+
+- to more organized coding, I created `gtrends` data frame object.
+- also I use `Tarih` value in order to set `Date` variable which is monthly.
+
+```{r, creating gtrends object, echo = TRUE, results = 'hide', warning = FALSE}
+
+antalya <- antalya[-1,]
+antalya <- as.numeric(antalya)
+dolarkuru <- dolarkuru[-1,]
+dolarkuru <- as.numeric(dolarkuru)
+asgariucret <- asgariucret[-1,]
+asgariucret <- as.numeric(asgariucret)
+gtrends <- data.frame(Tarih, asgariucret, antalya, dolarkuru)
+gtrends <- mutate(gtrends,Date = ym(Tarih))
+
+```
+
+### Comparing GoogleTrends with EVDS Data
+
+#### **'Dolar Kuru'**  vs.  **US Dollar**
+
+```{r, Dolar Kuru vs Currency Rates, fig.width = 10, echo = TRUE}
+
+# GoogleTrends 'Dolar Kuru' Search plotting
+gtrends %>%
+  ggplot(aes(x= Date, y = dolarkuru)) +
+  geom_line(color = 1) + 
+  labs(title = " 'Dolar Kuru' Search in GoogleTrends", x = "Time(Monthly", y = "'Dolar Kuru' Search") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+```
+
+```{r, US Dollar plot, fig.width=10, echo =FALSE}
+# US Dollar (buying) Data from EVDS
+df1 %>%
+  ggplot(aes(x = Date, y = US_Dollar)) + 
+  geom_line() + 
+  labs(title = "US Dollar vs. Time", x = "Time", y = "US Dollar") + 
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") +
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+
+```
+
+**Analysis;**
+
+As we can see from 'Dolar Kuru' search plot, it has a lot of fluctuations When we look carefully, these fluctuations happening at the same time with the fluctuations in US Dollar rates.
+
+#### **'Asgari Ücret'**  vs.  **Consumer Price Index**
+
+```{r, Asgari Ucret Search in Google Trends plot, fig.width = 10, echo = TRUE}
+
+# GoogleTrends 'Asgari Ucret' Search plotting
+gtrends %>%
+  ggplot(aes(x= Date, y = asgariucret)) +
+  geom_line(color = 1) + 
+  labs(title = " 'Asgari Ucret' Search in GoogleTrends", x = "Time(Monthly", y = " 'Asgari Ucret' Search") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+```
+
+```{r, CPI plot, fig.width=10, echo =FALSE}
+# Consumer Price Index Data from EVDS
+df1 %>%
+  ggplot(aes(x=Date, y = Consumer_Price_Index)) + 
+  geom_line(color= 9) +
+  labs(title = "Consumer Price Index vs. Time (Base year 2003 = 100)", y = "Consumer Price Index", x = "Time(Monthly)") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+
+```
+
+**Analysis;**
+
+In Turkey, minimum wages for following years are announced at the end of the each year. Therefore in 'Asgari Ucret' search plot there is seasonality at the end of the each years. 
+
+Also Consumer Price Index effects initially poor people.
+
+As we can see from plots, there is increasing trends in both plots and we can say that these data are correlated with each other.
+
+#### **'Antalya'**  vs.  **Number of Total Tourist**
+
+```{r, Antalya Search in Google Trends plot, fig.width = 10, echo = TRUE}
+
+# GoogleTrends 'Antalya' Search plotting
+gtrends %>%
+  ggplot(aes(x= Date, y = antalya)) +
+  geom_line(color = 1) + 
+  labs(title = " Antalya Search in GoogleTrends", x = "Time(Monthly", y = "Antalya Search") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+```
+
+```{r, The number of tourists visiting Turkey plot, fig.width=10, echo =FALSE}
+# Number of Total Tourist Plot
+df1 %>%
+  ggplot(aes(x=Date, y = Number_of_Total_Tourist)) +
+  geom_line(color = "Blue") +
+  labs(title = "The number of tourists visiting Turkey", x = "Time (Monthly)", y = "Total Number of Tourists") +
+  scale_x_date(date_breaks = "6 month", date_labels = "%Y %b", date_minor_breaks = "1 month") +
+  theme(axis.text.x=element_text(angle=60, hjust=1.4, vjust = 1.4))
+```
+
+**Analysis;**
+
+Antalya is a city where is popularly visited by tourists. 
+
+As we can see from plots, there is strong correlation between 'Antalya' and Number of Total Tourists.
+
+
+### Data References 
+
+[EVDS](https://evds2.tcmb.gov.tr/)
+
+[Google Trends](https://trends.google.com/trends/?geo=TR)
+
