@@ -1,0 +1,355 @@
+---
+title: "IE 360 Homerwork 2"
+author: "Yusuf Sina Öztürk"
+date: "Last edited `r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Introduction
+
+In this work, we will try to forecast Consumer Price Index in footwear and clothing category for one month. We will use linear regression model to forecast in our forecast.
+
+Data that I will use all from [EVDS website](https://evds2.tcmb.gov.tr/index.php?/evds/serieMarket). Data file that I imported from EVDS website have 5 different series. One is the target value which we are going to forecast. Other 4 data series are going to be used as regressors. Their names in data table are;
+
+1. `CPI` - Consumer Price Index for Footwear and Clothing
+2. `USD` - USD exchange rates
+3. `CCI` - Consumer Confidence Index
+4. `Interest` - Interest Rates for personal finance credit
+5. `Clothing` - Survey about consideration for spending on Clothing and Footwear Index
+
+I will follow the steps in the order that;
+
+1. Adding a linear Trend regressor
+2. Adding Month regressor
+3. Adding USD exchange rate regressor
+4. Adding all other data series into the model
+5. Adding lag variables 
+6. Forecast
+
+### Importing Data and Manipulation
+
+```{r, libraries, include=FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(forecast)
+library(dplyr)
+
+```
+
+Getting data from my repository and do manipulations to make ready for forecast
+
+```{r, getting data and manipulation,warning=FALSE}
+
+EVDSdata <- read.csv(file = "EVDS.csv")
+EVDSdata <- mutate(EVDSdata, Date = ym(ï..Tarih))
+EVDSdata = select(EVDSdata, -1)
+colnames(EVDSdata) <- c("USD","Interest","CPI","Clothing","CCI","Date")
+EVDSdata <- EVDSdata[-c(112:121),]
+EVDSdata <- as.data.table(EVDSdata)
+EVDSdata[1,]
+
+```
+
+As we can see from first row of data, there is 5 data series and their date information.
+
+As I mentioned in Introduction we will try to forecast on `CPI` data series. 
+
+In order to visualize how my data that I will work on look like, I plotted `CPI`.
+
+```{r, first plot, echo=FALSE}
+
+ggplot(EVDSdata,aes(x= Date, y = CPI)) + geom_line()
+
+```
+
+
+### Trend Regressor
+
+As we can see from plot, obviously there is linear increase in our serie. Therefore, I added ``trend` variable into my data table. 
+
+```{r, adding trend variable}
+
+EVDSdata <- as.data.table(EVDSdata)
+EVDSdata[,trend:=1:.N, ]
+
+```
+
+Now time to do first model with only using trend regressor.
+
+```{r, lm with trend}
+
+fit1 = lm(CPI ~trend, data = EVDSdata)
+summary(fit1)
+
+```
+
+Note that our F-statistic value and R-squared values to see whether our model go better or not.
+
+Now, we can do our first prediction using ``fit1` and plot how our predictions look like.
+
+```{r, prediction with fit1,fig.width=10}
+
+EVDSdata[,pred_trend := predict(fit1,EVDSdata)]
+
+ggplot(EVDSdata,aes(x= Date)) + geom_line(aes(y=CPI,color='real')) + geom_line(aes(y= pred_trend, color='trend'))
+
+```
+
+
+### Monthly Time Regressor
+
+From plot, we can clearly see that our data has seasonality over months. Therefore, I addded a new variable that represents month information in `mon` variable.
+
+```{r, adding month variable}
+
+EVDSdata[,mon:=as.character(lubridate::month(Date,label = TRUE))]
+
+```
+
+Now, we are ready to build a new model using month variable addition to trend regressor.
+
+```{r,lm with month}
+
+fit2 = lm(CPI~trend+mon,data = EVDSdata)
+summary(fit2)
+
+```
+
+As we can see from the summary, our R-squared values increased significantly. Also most of the month variable had an importance in the model.
+
+To see how improved our model, we do a new prediction with using `fit2`.
+
+```{r, prediction with fit2}
+
+EVDSdata[,pred_trend_month:=predict(fit2,EVDSdata)]
+
+```
+
+And plot it:
+
+```{r, plot with prediction on fit2,fig.width=10}
+
+ggplot(EVDSdata,aes(x= Date)) + 
+  geom_line(aes(y=CPI,color='real')) + 
+  geom_line(aes(y= pred_trend_month, color='trend + month'))
+
+```
+
+As we can see from the plot, we have a nice prediction curve.
+
+To see do we have correlation in between lags, I used `checkresiduals` function.
+
+```{r, checkresidual function,fig.width=10,warning=FALSE}
+
+checkresiduals(fit2$residuals)
+
+```
+As we can see from ACF graph we still have significantly high correlation between lags.
+
+### USD Exchange Rate Regressor
+
+To see is there any correlation between USD exchange rates and our `fit2` model. I plot Residual vs USD graph. 
+
+```{r, USD vs Residuals,echo=TRUE,fig.width=10,warning=FALSE}
+
+EVDSdata[,residual:=fit2$residuals]
+
+ggplot(EVDSdata,aes(x=USD,y=residual)) + 
+  geom_line() +
+  geom_smooth() 
+
+
+```
+As we can see from the plot, there is correlation between our model and USD Exchange rate so we could add this series in our model.
+
+```{r,lm with USD}
+
+fit3 = lm(CPI~ trend+mon+USD, data= EVDSdata)
+summary(fit3)
+
+```
+We have increased R-squared value and `USD` variable have an importance in the model.
+
+Now we can do prediction with using `fit3` model and plot it.
+
+```{r, plot with prediction on fit3,fig.width=10}
+
+EVDSdata[,pred_trend_month_USD:=predict(fit3,EVDSdata)]
+
+ggplot(EVDSdata,aes(x= Date)) + 
+  geom_line(aes(y=CPI,color='real')) + 
+  geom_line(aes(y= pred_trend_month_USD, color='trend + month + USD'))
+
+
+```
+
+You can see there is upgrade in our prediction curve.
+
+### Adding Other Data Series into the Model
+
+Now, I want to add all the series that I take from EVDS database into model. After seeing the summary of the model, I can decide to whether keep the regressors in the model or not.
+
+```{r, lm with all other data}
+
+fit4 = lm(CPI~trend + mon + USD + Interest + Clothing + CCI, data= EVDSdata)
+summary(fit4)
+
+```
+
+Interest Rates have a significant importance in the model with 2 stars. However, `Clothing` and `CCI` data series are not important in our model. Therefore, I update my model with only using `Interest`.
+
+```{r, lm with only interest}
+
+fit5 = lm(CPI~trend + mon + USD + Interest , data= EVDSdata)
+summary(fit5)
+
+```
+
+It has a very small decrease in the R-squared value but this is not important.
+
+Now time to do prediction with our new model.
+
+```{r, prediction with fit5}
+
+EVDSdata[,pred_trend_month_USD_Interest:=predict(fit5,EVDSdata)]
+
+```
+
+And plot it
+
+```{r, plot using fit5,fig.width=10}
+
+ggplot(EVDSdata,aes(x= Date)) + 
+  geom_line(aes(y=CPI,color='real')) + 
+  geom_line(aes(y= pred_trend_month_USD_Interest, color='trend + month + USD + Interest'))
+
+```
+
+We have a better prediction curve but we still have some mispredictions.
+
+### Lagged Variables
+
+One more time we call `checkresiduals` function to see whether we have correlation between lags or not.
+
+```{r, checkresiduals fit5,fig.width=10,warning=FALSE}
+
+checkresiduals(fit5$residuals)
+
+```
+
+We can see that lag 1 and lag 2 have a significant correlation. Therefore, I added lagged variables for both lag1 and lag2.
+
+```{r, adding lagged variables}
+
+EVDSdata[,lag1:=shift(residuals(fit5),1)]
+EVDSdata[,lag2:=shift(residuals(fit5),2)]
+
+```
+
+I added residuals lag into my data table as `lag1` and `lag2`. From their importance in the model, I can extract one or both of them from the model.
+
+Now, I can build one more model with using these lagged variables.
+
+```{r, lm with using lagged variables}
+
+fit6 = lm(CPI~trend + mon + USD + Interest  + lag1 + lag2 , data= EVDSdata)
+summary(fit6)
+
+```
+
+From summary, we can see that both lagged variables have very high importance in our model so there is no need to extract lagged variables from the model.
+
+Let us see one more time whether our model has correlation between lags or not with using `checkresiduals` function.
+
+```{r, checkresiduls for fit6,fig.width=10,warning=FALSE}
+
+checkresiduals(fit6)
+
+```
+
+With using lagged variables we solved correlation problem in our model.
+
+Now, it is time to do prediction.
+
+```{r, prediction with fit6}
+
+EVDSdata[,pred_trend_month_USD_Interest_lags:=predict(fit6,EVDSdata)]
+
+```
+
+And plot it:
+
+```{r, plot fit6,warning=FALSE,fig.width=10}
+
+ggplot(EVDSdata,aes(x= Date)) + 
+  geom_line(aes(y=CPI,color='real')) + 
+  geom_line(aes(y=pred_trend_month_USD_Interest_lags , color='trend + month + USD + Interest + Lags'))
+
+```
+
+As we can see clearly from plot, we have very nice predictions in the model. 
+
+We could jump into forecast step now. 
+
+### Forecast
+
+To make forecast, I will going to put one more observation in my data table. Update its date, month and other regressor values. 
+```{r,put one more observation}
+
+EVDSdata <- rbind(EVDSdata,data.table(Date = as.Date("2021-04-01")), fill=T)
+
+EVDSdata$trend[112]= as.numeric(112)
+EVDSdata$mon[112]= as.character("Apr")
+
+lag1_last <- EVDSdata$lag1[111]
+EVDSdata$lag1[112] = lag1_last  
+
+lag2_last <- EVDSdata$lag1[110]
+EVDSdata$lag2[112] = lag2_last  
+
+```
+Becasuse I do not know regressor values for the future. I am going to use mean of last three values of the regressors.
+
+```{r, update regressors values}
+
+interest_last_3 <- mean(EVDSdata[109:111]$Interest)
+EVDSdata$Interest[112]= interest_last_3
+
+USD_last_3 <- mean(EVDSdata[109:111]$USD)
+EVDSdata$USD[112]= USD_last_3
+
+```
+
+Now final prediction for April 2021 is
+
+```{r, final prediction}
+
+EVDSdata[is.na(CPI)==T,CPI:=predict(fit6,EVDSdata[is.na(CPI)==T])]
+print(EVDSdata$CPI[112])
+
+```
+
+### Conclusion
+
+What we did in this forecast process is that adding linear trend, month for seasonality, USD and Interest rates as regressors, and lagged variables in our model. 
+
+In our model we do not have any correlation between residuals and R-squared value are high enough so there is no restriction for us to do our final forecast.
+
+We did our final forecast with using mean of last 3 USD and Interest Rate variables.
+
+Finally, we found a forecast for April 2021 which is 273.88 while the actual data for April 2021 is 274.23. 
+
+This result is pretty satisfying.
+
+#### References
+
+[Central Bank of Turkey Data Center](https://evds2.tcmb.gov.tr/index.php?/evds/serieMarket)
