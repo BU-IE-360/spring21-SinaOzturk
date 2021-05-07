@@ -10,4 +10,4 @@
 
 ## HW 2
 
-[Here](files/HW2/HW-2.html) is one month forecast for Consumer Price Index in Footwear and Clothing category with using linear regression model.
+[Here](files/HW2/HW-2.html) is one month forecast for Consumer Price Index in Footwear and Clothing category with using linear regression modell.
