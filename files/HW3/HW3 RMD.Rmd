@@ -1,0 +1,569 @@
+---
+title: "IE 360 Homework 3"
+author: "Yusuf Sina Öztürk"
+date: "Last edited `r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, libraries, include= FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(forecast)
+library(urca)
+library(stats)
+
+```
+
+### Introduction
+
+In this homework, we will try to understand which time units can be used to model hourly electricity consumption data.
+
+After that we will use a specific time frequency to build a model with using AR, MA and ARIMA models. After deciding to build a model with proper coefficient in ARIMA models with respect to AIC values, we will forecast for 14 days period and analyze our forecast with different performance measures.
+
+### Importing Data and doing manipulation to obtain a utilizable data
+
+Our `.csv` file include hourly electricity consumption data from 1st January of 2016 to 20th May of 2021. 
+
+```{r, manipulation to data, warning=F,fig.width=10}
+
+consumption=fread("RealTimeConsumption.csv")
+consumption <- consumption[,-c(4,4)]
+colnames(consumption)[3] <- "Consumption.MWh"
+
+```
+
+In order to have different time units I add time variables to the data table such as
+
+- `datetime` is used to combine `Hour` and `Date`
+- `weeknumber` is stand for to week number of the year
+- `Month` is stand for number of the month
+- `w_day` is stand for the name of the day
+- `Year` is stand for last two digit of corresponding date
+
+```{r, adding time variables, warning=F,fig.width=10}
+
+numeric_hour <- rep(0:23, 1967 )
+consumption[,datetime:=dmy(Date)+dhours(numeric_hour)]
+consumption=consumption[order(datetime)]
+
+weeknumber_for_first<- rep(1,72)
+n <- 7*24
+k <- rep(2:281,each=n)
+last<- rep(282,96)
+weeknumber<- c(weeknumber_for_first,k,last)
+consumption$week.number<- weeknumber
+
+
+consumption <- mutate(consumption, Date = dmy(Date))
+
+consumption$Year <- (format(consumption$Date, format= "%y"))
+consumption[,Months:=(lubridate::month(Date,label=F))]
+consumption[,w_day:=as.character(lubridate::wday(Date,label=T))]
+
+
+```
+
+There is 0 values in the `Consumption.MWh` column. Therefore, we need to eliminate that row from our data to have a better model. 
+
+```{r, omitting zero values, warning=F,fig.width=10}
+
+consumption[consumption$Consumption.MWh == 0] <- NA
+consumption <- na.omit(consumption)
+
+```
+
+Now, our data is ready to decompose our data for different time units.
+
+### Hourly Data
+
+```{r, hourly time series object, warning=F,fig.width=10}
+
+hourly.consumption.ts <- ts(consumption$Consumption.MWh,  freq = 24*365, start= c(2016,1))
+ts.plot(hourly.consumption.ts)
+acf(hourly.consumption.ts)
+```
+As we can see from `ts.plot()` plot, there is not much difference in the variance of the data. There is some particular outliers but it does not change too much the variance of the overall variance. Therefore, we can use `additive` decomposition. 
+
+As we can see from the `acf()` function, at every lag 24 autocovariance values have a peak.
+
+Let us decompose the hourly time series object using `decompose()` function.
+
+```{r, hourly decomposition, warning=F,fig.width=10}
+
+hourly.consumption.dec.additive <- decompose(hourly.consumption.ts,type= "additive")
+
+plot(hourly.consumption.dec.additive)
+
+```
+
+As we can see from random part of decomposited object, we can easily detect that there is still seasonality effect. 
+
+### Daily Data
+
+In order to use daily information of our data, I take the mean of each 24 hours and build another data set called `daily_series`.
+
+
+```{r, daily_series, warning=F,fig.width=10}
+
+daily_series= consumption[,list(Consumption.MWh=mean(Consumption.MWh)),by=list(Date)]
+
+daily.consumption.ts <- ts(daily_series$Consumption.MWh,frequency = 365, start = c(2016,1))
+
+ts.plot(daily.consumption.ts)
+acf(daily.consumption.ts)
+
+
+```
+
+As we can see, we have more clear `ts.plot()` plot, just because we take the mean of the hours to have a daily series. 
+
+Also `acf()` function shows us that there is peak in autocovariance values at each 7 lags which means there is also weekly seasonality in our data. 
+
+```{r, decomposition of daily_series, warning=F,fig.width=10}
+
+daily.consumption.dec.additive <- decompose(daily.consumption.ts,type= "additive")
+plot(daily.consumption.dec.additive)
+
+```
+
+There is nothing much changed after taking mean of the data to built a daily data, we still have fluctuations in seasonal term.
+
+In random term, even if seasonality effect decreased compared to hourly data, there is still seasonality can be detected.
+
+### Weekly Data
+
+As we did to get a daily data, we will do the same thing to get a weekly data. Take the mean of the 7 days periods. Then we called that object as `weekly_series`
+
+
+```{r, weekly_series, warning=F,fig.width=10}
+
+weekly_series = aggregate( Consumption.MWh ~ week.number, consumption, mean)
+
+weekly_date <-seq(as.Date("2016-01-04"), as.Date("2021-05-20"), by ="week")
+first_week<- as.Date("2016-01-01")
+weekly_date <- c(first_week,weekly_date)
+weekly_series$weekly_date <-weekly_date
+
+weekly.consumption.ts <- ts(weekly_series$Consumption.MWh, freq = 52, start = c(2016,1))
+acf(weekly.consumption.ts,lag.max = 50)
+ts.plot(weekly.consumption.ts)
+```
+
+As we can see from `acf()` function we still have seasonality in the lags 26, there is peak in autocovariance values.
+
+In `ts.plot()` we have more clear plot, but we easily detect that particular time in the year there is peaks and dips.
+
+```{r, decomposition weekly_series, warning=F,fig.width=10}
+
+weekly.consumption.dec.additive <- decompose(weekly.consumption.ts, type="additive")
+plot(weekly.consumption.dec.additive)
+
+```
+We have now way more clear decomposited variables for both trend and seasonal variables. But random part of decomposited object have some outliers. 
+
+### Monthly Data
+
+To decompose monthly data, I create `monthly_series` by taking mean of each month.
+
+```{r,monthly_series,warning=F,fig.width=10}
+
+monthly_series = aggregate( Consumption.MWh ~ Months + Year, consumption, mean)
+monthly_dates <-seq(as.Date("2016-01-01"), as.Date("2021-05-20"), by ="month")
+monthly_series$monthly_date <- monthly_dates
+
+monthly.consumption.ts <- ts(monthly_series$Consumption.MWh, freq = 12, start = c(2016,1))
+ts.plot(monthly.consumption.ts)
+acf(monthly.consumption.ts)
+
+```
+We can clearly see from both `acf()` and `ts.plot()` there is seasonality in the particular months of the year especially at lag6 and lag12.
+
+```{r,decomposition monthly_series,warning=F,fig.width=10}
+
+monthly.consumption.dec.additive <- decompose(monthly.consumption.ts,type= "additive")
+plot(monthly.consumption.dec.additive)
+
+
+```
+We have straight trend and clear seasonal series in decomposited object. Also random part looks like random, unless there is significant decrease in the beginning of the 2020 because of Covid pandemic.  
+
+#### Conclusion for Different Time Units
+
+For different time units, we decompose our data. While we increase our scope for time units, we get more clear and without fluctuations trend and seasonal terms. 
+
+However, there is still seasonality we detected even if we did for monthly data. Also there is outliers for every time unit. 
+
+### Weekly + Daily Data Decomposition
+
+To use both daily and weekly seasonality, I applied two times decomposition into my data.
+
+First, Lets check stationarity of the data for weekly seasonality with using `ur.kpss()` function. 
+
+```{r, stationarity of daily, warning=F,fig.width=10}
+
+consumption[,differ:=Consumption.MWh - shift(Consumption.MWh,168)]
+library(urca)
+unt_test=ur.kpss(consumption$differ) 
+summary(unt_test)
+ggplot(consumption,aes(x=Date)) + geom_line(aes(y=differ))
+```
+As we can see from ur.kpss() report, we found stationarity for our data because test-statistic value is small enough. 
+
+Also from plot, we can see briefly, we catch stationarity,but we have still outliers.
+
+Now, before starting decompose our data, we should divide our data to training and test sets to do proper forecast. Our forecast is between ``07.05.2021` and  `20.05.2021` for 14 days. 
+
+```{r, divide data,warning=F,fig.width=10}
+
+
+training.consumption <- head(consumption$Consumption.MWh, length(consumption$Consumption.MWh) - 24*14)
+
+test.consumption <- ts((tail(consumption$Consumption.MWh, (24*14 + 84 + 12))),
+                       freq = 168 ,start=c(279,(168-84-12+1)) )
+
+all.consumption.ts <- ts(consumption$Consumption.MWh, freq = 168)
+
+weekly.ts <- ts(training.consumption,freq = 168)
+
+```
+
+Because we start with weekly seasonality, I built a time series object with frequency of 168 called `weekly.ts`. 
+
+As I mentioned before, because we don't have too much variance in our data, we could use `additive` way to decompose our data.
+
+```{r, decompose weekly.ts, warning=F,fig.width=10}
+
+weekly.decompose <- decompose(weekly.ts,type="additive")
+
+plot(weekly.decompose)
+
+```
+
+To get only random part of the decomposited object, we should subtract `trend` and `seasonal` part. 
+
+```{r, detrend of weekly.ts, warning=F,fig.width=10}
+
+deseason.weekly <- weekly.ts - weekly.decompose$seasonal
+random.weekly <- deseason.weekly - weekly.decompose$trend
+ts.plot(random.weekly)
+
+```
+So we have a random part of weekly data.
+
+But we also want to decompose our data with regard to daily seasonality. Therefore, we apply second time decomposition to this `random.weekly`.
+
+First, I should generate another time series object with frequency of 24 to be able to decompose as daily. 
+
+```{r, decomposition random.weekly, warning=F,fig.width=10}
+
+weekly.daily.ts <- ts(random.weekly, freq = 24)
+
+weekly.daily.decompose <- decompose(weekly.daily.ts,type="additive")
+
+plot(weekly.daily.decompose)
+
+
+```
+Above, we can't see any trendy part, although there is outliers. On the other hand, we have a strong seasonal part. 
+
+Let's subtract trend and seasonal part of it from `random.weekly`.
+
+```{r, detrend of weekly.daily.ts, warning=F,fig.width=10}
+
+deseason.daily.weekly <- weekly.daily.ts - weekly.daily.decompose$seasonal
+random.daily.weekly <- deseason.daily.weekly - weekly.daily.decompose$trend
+
+ts.plot(random.daily.weekly)
+
+```
+This plot looks very similar to `random.weekly` but this one has smaller values. 
+
+### Model Deciding (AR MODELS)
+
+We are going to use our last decomposited random series which is `random.daily.weekly` to built our models.
+
+As we see from tsplot of our `random.daily.weekly` data, we have a lot of outliers caused by holidays, religious and national days etc. I built in a csv file for that information. In that file we have 1's for holidays and other special days and 0's for normal days. 
+
+We are going to use this data in our models as a regressor to have a better knowledge about those outliers.
+
+```{r, ResmiTatil, warning=F}
+
+resmitat <- read.csv("resmitat.csv")
+consumption$ResmiTatil <- resmitat
+training.resmitat <- head(consumption$ResmiTatil, length(consumption$ResmiTatil) - 24*14) 
+test.resmitat <- ts((tail(consumption$ResmiTatil, (24*14 + 84 + 12))), freq = 168, start=c(279,(168-84-12+1)) )
+all.resmitat.ts <- ts(consumption$ResmiTatil, freq = 168)
+
+```
+
+Now we are ready to built our  AR models. 
+
+Lets start with p = 1 for our first AR model. 
+
+```{r, AR1, warning=F}
+
+modelAR1 <- arima(random.daily.weekly, order=c(1,0,0),xreg= training.resmitat)
+print(modelAR1)
+
+```
+As we can see our AIC error measure is pretty big, because we have some outliers and actually we have pretty big data set.
+
+Because we are going to determine our model from their AIC values, I only print AIC values from now on.
+```{r, AR2, warning=F}
+
+modelAR2 <- arima(random.daily.weekly, order=c(2,0,0),xreg= training.resmitat)
+modelAR2$aic
+
+
+```
+We decreased AIC value a little bit.
+
+```{r, AR3, warning=F}
+
+modelAR3 <- arima(random.daily.weekly, order=c(3,0,0),xreg= training.resmitat)
+modelAR3$aic
+
+```
+We decreased very small amount of AIC value.
+
+```{r, AR4, warning=F}
+
+modelAR4 <- arima(random.daily.weekly, order=c(10,0,0),xreg= training.resmitat)
+modelAR4$aic
+
+```
+We decreased very tiny amount of AIC value even if I increased p value too much. To be effective and, to get rid of computation problems, we stop here for Auto Regressive Models.
+
+### Model Deciding (MA MODELS)
+
+To built Moving Average Models, we should determine q parameter.
+
+Let us start with q = 1
+
+```{r, MA1, warning=F}
+
+modelMA1 <- arima(random.daily.weekly, order=c(0,0,1),xreg= training.resmitat)
+modelMA1$aic
+
+```
+
+Now, we have higher AIC values compared to our first `MA1` model which has p = 1. So lets increase q value one more.
+
+```{r, MA2, warning=F}
+
+modelMA2 <- arima(random.daily.weekly, order=c(0,0,2),xreg= training.resmitat)
+modelMA2$aic
+
+```
+
+Here, also we decreased AIC value a little bit.
+
+```{r, MA3, warning=F}
+
+modelMA3 <- arima(random.daily.weekly, order=c(0,0,10),xreg= training.resmitat)
+modelMA3$aic
+
+```
+
+Because we have little improvement in MA models, computation problems and to be effective, we stopped here for Moving Average Models. 
+
+
+### Model Deciding (ARIMA MODELS)
+
+Lets give a shot to `p = 1` and `d = 1 `
+
+```{r, ARIMA1, warning=F}
+
+modelARIMA1 <- arima(random.daily.weekly, order=c(1,1,0),xreg= training.resmitat)
+modelARIMA1$aic
+
+```
+It is a good start for the first model. Lets keep increase the coefficients.
+
+```{r, ARIMA2, warning=F}
+
+modelARIMA2 <- arima(random.daily.weekly, order=c(1,1,1),xreg= training.resmitat)
+modelARIMA2$aic
+
+```
+AIC value improved but this amount is very small. So here we dropped `d` coefficient to see how ARIMA behave.
+
+```{r, ARIMA3, warning=F}
+
+modelARIMA3 <- arima(random.daily.weekly, order=c(1,0,1),xreg= training.resmitat)
+modelARIMA3$aic
+
+```
+Now, we have decrease a lot. We can conclude that `d` coefficient stand for differencing and it is nothing to do with our model because we already decompose our data. 
+
+Keep increase `p` and `d` coefficient to find a better model.
+
+```{r, ARIMA4, warning=F}
+
+modelARIMA4 <- arima(random.daily.weekly, order=c(4,0,4),xreg= training.resmitat)
+modelARIMA4$aic
+
+```
+We have good improvement in AIC value compared to other values. We can increase one more for both `p` and `q`.
+
+```{r, ARIMA5, warning=F}
+
+modelARIMA5 <- arima(random.daily.weekly, order=c(5,0,5),xreg= training.resmitat)
+modelARIMA5$aic
+
+```
+Now we have small increase in AIC value so lets subtract one from `p`
+
+```{r, ARIMA6, warning=F,fig.width=10}
+
+modelARIMA6 <- arima(random.daily.weekly, order=c(4,0,5),xreg= training.resmitat)
+modelARIMA6$aic
+
+```
+
+We have better AIC value now. Lets look other way around. Keep `p` at 5 and subtract one from `q`.
+
+```{r, ARIMA7, warning=F,fig.width=10}
+
+modelARIMA7 <- arima(random.daily.weekly, order=c(5,0,4),xreg= training.resmitat)
+modelARIMA7$aic
+print( modelARIMA7)
+```
+
+This model have the best AIC value from all other MA, AR and ARIMA models. And there is no better model than this with regard to AIC values. So we choose to do our forecast with using `modelARIMA7`.
+
+But when we look at resmitatil regressor in the model, it does not have a lot of effect in the model. 
+
+### Adding Decomposoted Parts
+
+Now to do proper forecast, we should add parts that we subtracted to built our ARIMA models to the residuals of `modelARIMA7`.
+
+```{r, summation of decomposed parts, warning=F,fig.width=10}
+
+
+model_fitted <- random.daily.weekly - residuals(modelARIMA7)
+model_fitted_transformed <- model_fitted + weekly.daily.decompose$trend + weekly.daily.decompose$seasonal
+model_fitted_transformed <- ts(model_fitted_transformed,freq = 168)
+model_fitted_transformed <- model_fitted_transformed + weekly.decompose$trend + weekly.decompose$seasonal
+
+plot(all.consumption.ts, xlim = c(240,283))
+points(model_fitted_transformed, type= "l", col = 2,xlim = c(240,283))
+```
+Here, we see our model is fitted. For the last part, lets forecast!
+
+### Forecast
+
+Now, we should determine how many time units ahead we are going to forecast. 
+
+While we decompose our data set, we lose some data. For daily decomposition we lost `24/2 = 12` and for weekly decomposition we lost `(24*7) / 2 = 84`. Therefore, we lost `84 + 12 = 96` data points. These data points is not included in our model. Therefore, we also need them to be forecasted. 
+
+We also want to do our forecast for 14 days. 
+
+Overall forecast ahead time is `14 * 24 + 96 = 432`.
+
+We can use `predict()` function to forecast.
+
+```{r, forecasting, warning=F,fig.width=10}
+
+model.forecast <- predict(modelARIMA7, n.ahead = 432, newxreg = test.resmitat)$pred
+model.forecast= ts(model.forecast, frequency = 168, start=c(279,(168-84-12+1)))
+```
+
+We also need to add trend and seasonal part. We are going to use the last values of trends in decomposed objects and add them up.
+
+```{r, last trend values, warning=F,fig.width=10}
+
+last.trend.value <-tail(weekly.decompose$trend[!is.na(weekly.decompose$trend)],432) + tail(weekly.daily.decompose$trend[!is.na(weekly.daily.decompose$trend)],432)
+
+```
+
+For the seasonal parts, all season have the same coefficient therefore we take corresponding points for the first days of the decomposed object.
+
+```{r, seasonal coefficients,warning=F,fig.width=10}
+
+seasonality=weekly.daily.decompose$seasonal[97:528] + weekly.decompose$seasonal[97:528]
+
+```
+
+Now we should add our forecasts seasonal coefficients and last trend values together.
+
+```{r, actual forecast values, warning=F,fig.width=10}
+
+model.forecast.last = model.forecast + last.trend.value + seasonality
+
+
+plot(all.consumption.ts, xlim = c(240,283))
+points(model_fitted_transformed, type= "l", col = 2,xlim = c(240,283))
+points(model.forecast.last, type = "l", col = 3)
+
+
+```
+Here is our forecast in green, we don't have very good prediction as you can see. Because we don't have a lot of affect on our models about the national, religious or special holidays. In May 12 to May 15 2021, we have Ramadan Bairam. Therefore, our prediction, does not did well.
+
+However, lets compute different error measures.
+
+### Error Calculations
+
+To compute error measures, I took last 14 days of our actual data to the data table called `tested.data` and add this table our forecasts.
+
+```{r, tested.data,warning=F,fig.width=10}
+
+tested.data <- tail(consumption, 24*14)
+daily.model.forecast = ts(model.forecast.last,freq= 24)
+daily.model.forecast <- daily.model.forecast[-c(1:96)]
+tested.data$daily.model.forecast <- daily.model.forecast
+
+```
+
+#### Daily Bias and Daily Mean Absolute Percentage Error
+
+Here, computation of daily bias and MAPE:
+
+```{r, daily bias, warning=F,fig.width=10}
+
+errors <- tested.data[,list( MAPE = sum(abs((daily.model.forecast 
+                                             - Consumption.MWh)/Consumption.MWh))/24, 
+                             daily.bias = sum(Consumption.MWh - daily.model.forecast)/24), 
+                      by= list(Date)]
+
+print(errors)
+```
+
+For daily bias, we have relatively good enough values in the weekends. However, in the weekdays because of Ramazan Bairam, we have insane decrease in electricity consumption so we underpredicted in those days.
+
+Similarly, MAPE shows us that we have unsuccessful predictions in weekdays, but in weekends we have relatively better forecasts.
+
+
+#### Weighted Mean Absolute Percentage Error
+
+For 14-days period, I calculate mean of daily consumption and daily forecast. 
+
+```{r, WMAPE,warning=F}
+
+daily.mean.comparison.data <-tested.data[,list(mean.consumption = mean(Consumption.MWh,na.rm=T), mean.forecast = mean(daily.model.forecast,na.rm=T)), by=list(Date)]
+
+WMAPE <- sum(abs((daily.mean.comparison.data$mean.consumption- daily.mean.comparison.data$mean.forecast)))/ sum(daily.mean.comparison.data$mean.consumption) * 100
+
+WMAPE
+```
+
+We have 11% error overall, which is not acceptable, I think. 
+
+### Conclusion
+
+As we can see from all the error measures, we have to teach our model about the special days, national and religious holidays etc. in some way. We should have significant effect of a regressor about those  special days in our model. Just by checking AIC measaure we don't did very well in our forecast. 
+
+
+
+### References
+
+[EPIAS Seffaflik Platformu](https://seffaflik.epias.com.tr/transparency/)
