@@ -1,0 +1,319 @@
+---
+title: "HW4&5 ITEM 7,8,9"
+author: "Yusuf Sina Öztürk - Ahmet Buğra Taksuk - Ahmet Tabakoğlu"
+date: "Last edited `r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, libraries, include=F}
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(forecast)
+library(miscTools)
+library(stats)
+library(GGally)
+```
+
+- In this homework, we are asked to develop alternative forecasting strategies for our project data which is the sales data and the related information of nine products of Trendyol at different categories. I'm going to investigate the seasonality for each product at different levels such as daily, weekly or monthly. Then I am going to fit the data into ARIMA model based on my findings about seasonality. Lastly, in the third and in the last task, I will check for external regressors and whether I can use them in my model or not.
+
+### PRODUCT ID: 85004
+
+### TASK 1 - Analyzing Seasonality
+
+### 1 ) Importing and Manipulating the data
+
+- After importing the recent data and deleting unnecessary columns, I changed the event_date column into datetime object to extract month,day,week information quickly. Then, I set the event_date column to index to make it time series object. Lastly, I added the month, week and day information as a numeric variable for possibility of using in future model.
+
+```{r,1}
+pr7 = read.csv("alldata_item7.csv")
+pr7 <- as.data.table(pr7)
+pr7 <- pr7[,-c("X","w_day")]
+```
+
+```{r,2,warning=F}
+pr7 <- mutate(pr7, event_date = ymd(event_date)) # converting event date into datetime object
+pr7[, Month:=as.numeric(lubridate::month(event_date,label=F))] #adding month information as a numeric variable 
+pr7[, Day:=as.numeric(lubridate::wday(event_date,label=F))] #adding day information as a numeric variable 
+head(pr7)
+```
+- For time series analysis, I only deal with the sold amount of the product so I drop possible regressors
+
+```{r,3}
+sold <- data.table(event_date =pr7$event_date,
+                   sold_count = pr7$sold_count)
+head(sold)
+```
+
+### Visualizations
+
+- At first, since there are some dramatic peaks at some point, I wanted to check whether there is outlier points in the data or not. So I plotted the boxplot of the sold amount data. From the plot, it seems that there are some outlier points. If the model I am going to fit is not explaining those points. I might discard them.
+
+```{r,4, fig.width=10}
+boxplot(sold$sold_count)
+```
+- For initial observation, I plotted the sold_count data over time. At first sight, seasonality component seems to be exist but further examination was needed. So, I used ACF and PACF plots. From ACF, we see that there is a seasonality pattern in the data.
+
+```{r,5,fig.width=10}
+ggplot(sold, aes(x = event_date)) + 
+  geom_line(aes(y = sold_count)) +  ggtitle("Product 85004 Sold Amount") +
+  xlab("Date") + ylab("Amount Sold")
+
+```
+
+#### ACF Plot
+
+```{r,6,fig.width=10}
+acf(sold$sold_count)
+```
+
+#### PACF Plot
+
+```{r,7,fig.width=10}
+pacf(sold$sold_count)
+```
+
+### 3 ) Decomposing the data
+
+#### Weekly Seasonality
+
+- From the seasonal component, we see that there is pattern occurs every week in the sold amount data. For the trend part, it is hard to say there is a significant trend component. After decomposing the series, random term seemed to have the zero mean assumption which is useful in fitting.
+
+#### Weekly Decomposition
+
+```{r,8,fig.width=10}
+soldts <- ts(rev(pr7$sold_count),  freq = 7, start= c(1,1))
+resultweekdec <- decompose(soldts,type= "multiplicative")
+plot(resultweekdec)
+```
+
+#### Monthly  Seasonality
+
+- Wee again see a seasonal component in the monthly decomposition however again it is hard to say that there is clear trend pattern.
+
+#### Monthly  Decomposition
+
+```{r,9,fig.width=10}
+
+soldtsmonth <- ts(rev(pr7$sold_count),  freq = 30, start= c(1,1))
+resultmonthdec <- decompose(soldtsmonth,type= "multiplicative")
+plot(resultmonthdec)
+```
+
+#### Random term after decomposing weekly
+
+```{r,10,fig.width=10}
+plot(resultweekdec$random)
+title("Random Term of Weekly Decomposed Data")
+```
+
+#### Random term after decomposing monthly
+
+```{r,11,fig.width=10}
+plot(resultmonthdec$random)
+title("Random Term of Monthly  Decomposed Data")
+```
+
+#### Conclusion
+
+- Both the monthly and the weekly decompositon seems to have a significant seasonal component but the trend variables are not significant. We might use weekly decompositon as the random term of weekly decomposition seems more like white noise series.
+
+```{r,12,fig.width=10}
+random = resultweekdec$random
+trend = resultweekdec$trend
+season = resultweekdec$seasonal
+```
+
+### Task 2- Fitting data into ARIMA Model
+
+#### 1 ) Deciding on the parameters
+
+- To decide on the parameters of the ARIMA model, I checked the ACF and PACF plots of the random term. ACF plot has a sinusodial pattern and PACF function has a negative and big correlation at lag 3.I am going to check the neighborhood to find the best model.
+
+```{r,13,fig.width=10}
+acf(random, na.action = na.pass)
+```
+
+```{r,12213,fig.width=10}
+pacf(random, na.action = na.pass)
+```
+
+```{r,14,fig.width=10}
+model <- arima(random, order= c(1,0,0))
+AIC(model)
+
+model <- arima(random, order= c(2,0,0))
+AIC(model)
+
+model <- arima(random, order= c(3,0,0))
+AIC(model)
+
+model <- arima(random, order= c(4,0,0))
+AIC(model)
+
+model <- arima(random, order= c(5,0,0))
+AIC(model)
+
+model <- arima(random, order= c(6,0,0))
+AIC(model)
+
+model <- arima(random, order= c(1,0,1))
+AIC(model)
+
+model <- arima(random, order= c(2,0,1))
+AIC(model)
+
+model <- arima(random, order= c(3,0,1))
+AIC(model)
+
+model <- arima(random, order= c(4,0,1))
+AIC(model)
+
+model <- arima(random, order= c(2,0,2))
+AIC(model)
+
+model <- arima(random, order= c(1,0,3))
+AIC(model)
+
+model <- arima(random, order= c(2,0,4))
+AIC(model)
+
+```
+- So the best model we came up with is the one with (2,0,4) three autoregressive term and one moving average term.
+
+#### 2 ) Fitting the Model
+
+```{r,15,fig.width=10}
+model <- arima(random, order= c(2,0,4))
+summary(model)
+```
+
+#### Residuals after fitting
+
+```{r,16,fig.width=10}
+plot(model$residuals)
+title("Residuals")
+```
+
+```{r,17,fig.width=10}
+modelfit <- random - model$residuals
+fitted <- modelfit*trend*season
+
+plot(soldts)
+points(fitted, type= "l", col = 2)
+
+```
+
+#### Comments
+
+- The model seems to have a good fit since zero mean assumption and constant varinace assumption seems to be held but it can be improved adding extra regressors to the model.
+
+### Task 3 and 4 - Adding external regressors to the model
+
+#### 1 ) Searcing for regressors
+
+- In this part, I am going to look for variables that might be correlated to sold amount and can be used as regressors in the ARIMAX model. To do this, first I am going to use pairplots. But some of the data in the columns are lost for so many data points. So only columns I can use for this, "Basket Count" , "Category Sold" , Category Visits" and "Category Favored". I checked the relation of each variable with the sold count. From the visualizations, Basket Count and Category Favored seems to have a correlation, so I am going to add those variables to the model.
+
+#### Pair Plot
+
+```{r,18,fig.width=10, warning=F}
+ggpairs(pr7, columns = c(4,7,8,10,12 ))
+```
+
+
+#### 2 ) Adding regressors to the ARIMA model
+
+- Before creating a regressors matrix, I had to split my data into train and test data so that I can calculate some performance measures. To do that, I am allocating the last seven days as test data and the rest as train data.
+
+```{r,19,fig.width=10, warning=F}
+traindata <- sold[-c(1:7),]
+head(traindata)
+testdata <- sold[c(1:7),]
+head(testdata)
+```
+
+```{r,20,fig.width=10, warning=F}
+regressors <- pr7[-c(1:7), c(7,13)]
+head(regressors)
+```
+
+##### Now I need to decompose my train data and fit the model with and without external regressors.
+
+```{r,21,fig.width=10, warning=F}
+traindatats <- ts(rev(traindata$sold_count),frequency = 7, start = c(1,1))
+resultdec <- decompose(traindatats,type= "multiplicative")
+trend = resultdec$trend
+season = resultdec$seasonal
+random = resultdec$random 
+plot(resultdec)
+```
+
+#### Without regressors
+
+```{r,22,fig.width=10, warning=F}
+model <- arima(random, order= c(2,0,4))
+summary(model)
+```
+
+#### With external regressor
+
+```{r,23,fig.width=10, warning=F}
+model <- arima(random, order= c(2,0,4), xreg = regressors)
+summary(model)
+```
+
+##### Coefficients of earlier model has been changed, some variables became insignificant. That's probably because some regressors explains each other. I am going to drop the Category Favored column and some MA terms so to try to fit the model again.
+
+```{r,24,fig.width=10, warning=F}
+regressors <- regressors[,-c(2,2)]
+model <- arima(random, order= c(3,0,1), xreg = regressors)
+summary(model)
+
+model <- arima(random, order= c(3,0,0), xreg = regressors)
+summary(model)
+```
+
+#### Comments
+
+- So overall model has improved with the external regressor Basket Count. But the AR(2) term has become insignificant. I am going to continue with this model.
+
+#### Forecasting and model performance measures
+
+
+```{r,25,fig.width=10, warning=F}
+model.forecast <- predict(model, n.ahead = 10, newxreg = pr7$basket_count[c(1:10)])$pred
+
+last.trend.value <-tail(resultdec$trend[!is.na(resultdec$trend)],10)
+seasonality <- resultdec$seasonal[370:379]
+
+forecast_normalized <- model.forecast*last.trend.value*seasonality
+forecast_normalized= ts(forecast_normalized, frequency = 7, start=c(55,3))
+```
+
+```{r,26,fig.width=10, warning=F}
+testdata <- ts(rev(testdata$sold_count), frequency = 7, start=c(55,3))
+
+plot(testdata,ylim = c(0,100))
+points(forecast_normalized,type= "l", col = 2)
+
+```
+
+```{r,27,fig.width=10, warning=F}
+modelfit <- random - model$residuals
+
+plot(random)
+points(modelfit, type= "l", col = 2)
+
+```
+
+#### Conclusion
+
+##### Overall looking the model, I would definetely go with an LM model as I did in the project becuase external regressors are covering the variance highly as opposed to the ARIMA model.
+
