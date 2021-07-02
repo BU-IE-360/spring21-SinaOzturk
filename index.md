@@ -15,3 +15,7 @@
 ## HW 3
 
 [Here](files/HW3/HW3-RMD.html) is my 2 week forecasting approach to the hourly electricity consumption in Turkey by using ARIMA models.
+
+## PROJECT
+
+[Here](files/ProjectCodes/FinalProjectReport.html) is our Trendyol products predictions.
